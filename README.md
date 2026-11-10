@@ -134,6 +134,39 @@ The following checks were performed:
 6. Launched Antigravity directly from D drive.
 7. Captured the Language Server TLS certificate validation errors.
 
+## Additional Observation: VS Code-Based Updater Components
+
+During the update attempt, the Windows updater displayed the following error:
+
+```text
+Failed to install Visual Studio Code update.
+```
+
+The updater generated a temporary log file named:
+
+```text
+vscode-inno-updater-1794133548.log
+```
+
+Location:
+
+```text
+%LOCALAPPDATA%\Temp\
+```
+
+The log showed that the updater attempted to launch the Antigravity executable from the registered C-drive installation path, which did not exist.
+
+### Why this observation matters
+
+The error message and temporary log filename contain Visual Studio Code-related terminology, while the application being updated is Google Antigravity IDE.
+
+This suggests that Antigravity uses or shares VS Code-derived updater components or infrastructure.
+
+It is an implementation observation, not proof that the updater is identical to the VS Code updater.
+
+The underlying failure remains the incorrect executable path resolution during the update process.
+
+
 ## Communication with the vendor
 
 I contacted the Google Antigravity team through X to report the findings and ask whether an official bug bounty or responsible disclosure program was available.
