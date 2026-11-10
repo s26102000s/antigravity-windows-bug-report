@@ -1,60 +1,118 @@
-# antigravity-windows-bug-report
-Technical investigation of Windows updater installation path mismatch and TLS certificate expiration issues in Google Antigravity IDE.
+# Antigravity Windows Bug Report
 
-# Bug Report: Antigravity IDE Windows Updater Path Mismatch and Language Server TLS Certificate Expiration
+Technical investigation of Windows updater installation path mismatch and Language Server TLS certificate validation errors in Google Antigravity IDE.
+
+---
+
+# Bug Report: Windows Updater Installation Path Mismatch and Language Server TLS Certificate Expiration in Google Antigravity IDE
 
 **Product:** Google Antigravity IDE  
 **Platform:** Windows  
-**Installation directory:** `D:\Antigravity IDE`  
-**Registry-reported version:** 2.6.0  
-**Date observed:** November 8, 2026  
+**Actual Installation Directory:** `D:\Antigravity IDE`  
+**Registry-Reported Version:** `2.6.0`  
+**Date Observed:** November 8, 2026  
+**Report Updated:** November 10, 2026  
 **Status:** Unresolved at the time of publication
 
-## Summary
+## 1. Summary
 
-I encountered two independent issues while updating and launching Google Antigravity IDE on Windows.
+I encountered two separate issues while updating and launching Google Antigravity IDE on Windows.
 
-The first issue involves an installation path mismatch between the actual application directory and the path used by the Windows updater.
+1. **Windows updater installation path mismatch:** The updater attempted to locate and launch Antigravity from a C-drive directory that had never been used for the installation, instead of the actual D-drive installation directory.
+2. **Language Server TLS certificate validation failure:** After launching the application directly from its actual installation directory, the application repeatedly reported `CERT_HAS_EXPIRED` errors during Language Server communication.
 
-The second issue involves an expired TLS certificate reported by the Antigravity Language Server, preventing successful secure communication.
+I investigated these behaviors through PowerShell executable checks, Windows Registry inspection, updater logs, and application-level log analysis.
 
-I investigated both issues using PowerShell, Windows registry inspection, application logs, and executable-level testing.
+This report documents the observed behavior, supporting evidence, reproduction steps, and questions for the Antigravity engineering team.
 
-## Issue 1: Windows updater uses an incorrect installation path
+---
 
-### Environment
+## 2. Issue 1: Windows Updater References an Incorrect Installation Directory
 
-My Antigravity installation is located at:
+### 2.1 Environment
 
-`D:\Antigravity IDE`
+My Antigravity IDE installation is located at:
 
-The executable exists and is accessible:
+```text
+D:\Antigravity IDE
+```
 
-`D:\Antigravity IDE\Antigravity IDE.exe`
+The application executable exists at:
 
-PowerShell verification:
+```text
+D:\Antigravity IDE\Antigravity IDE.exe
+```
+
+**Important clarification:** Antigravity IDE was installed on the D: drive. It was never installed in the following C-drive directory:
+
+```text
+C:\Users\shubh\AppData\Local\Programs\Antigravity IDE
+```
+
+### 2.2 Executable verification
+
+I verified the actual installation executable using PowerShell:
 
 ```powershell
 Test-Path "D:\Antigravity IDE\Antigravity IDE.exe"
-
-# Output: True
 ```
 
-However, the Windows uninstall registry contains the following installation location:
+**Output:**
 
-`C:\Users\shubh\AppData\Local\Programs\Antigravity IDE\`
+```text
+True
+```
 
-The executable does not exist at that location:
+I then checked the C-drive path referenced by the updater:
 
 ```powershell
 Test-Path "$env:LOCALAPPDATA\Programs\Antigravity IDE\Antigravity IDE.exe"
-
-# Output: False
 ```
 
-### Updater log
+**Output:**
 
-The updater log reports:
+```text
+False
+```
+
+These checks confirmed that the executable existed in the D-drive installation directory but not at the C-drive location referenced by the updater.
+
+### 2.3 Windows Registry investigation
+
+I inspected the Antigravity uninstall registration using:
+
+```powershell
+Get-ItemProperty `
+"HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" |
+Where-Object {$_.DisplayName -like "*Antigravity*"} |
+Select-Object DisplayName, InstallLocation, DisplayIcon, UninstallString
+```
+
+The registry returned the following installation location:
+
+```text
+C:\Users\shubh\AppData\Local\Programs\Antigravity IDE\
+```
+
+The `DisplayIcon` and `UninstallString` entries also referenced the same C-drive installation directory.
+
+The registry-reported application version was:
+
+```text
+2.6.0
+```
+
+This indicates that the Windows uninstall registration did not reflect the actual D-drive installation location at the time of investigation.
+
+### 2.4 Updater log evidence
+
+The updater log was located at:
+
+```text
+%LOCALAPPDATA%\Temp\vscode-inno-updater-1794133548.log
+```
+
+The relevant log entries were:
 
 ```text
 Nov 08 10:25:48.611 INFO Starting:
@@ -65,31 +123,56 @@ Code path doesn't seem to exist:
 C:\Users\shubh\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe
 ```
 
-### Expected behavior
+The updater attempted to use the C-drive executable path, which did not exist.
 
-The updater should correctly identify and use the existing installation directory, including custom installation locations such as D drive.
+### 2.5 Expected behavior
 
-### Actual behavior
+The updater should correctly identify and use the application's actual installation directory.
 
-The updater attempts to access an executable at a stale C-drive location, even though the application executable exists on D drive.
+Custom installation locations, including installations on another drive, should be handled correctly throughout the update process.
 
-### Impact
+### 2.6 Actual behavior
 
-- Application update fails.
-- The updater cannot locate the expected executable.
-- Users with custom installation directories may experience update failures.
+The updater attempted to access:
 
-## Issue 2: Language Server TLS certificate expiration
+```text
+C:\Users\shubh\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe
+```
 
-After launching the application directly from D drive:
+Instead of the actual executable:
+
+```text
+D:\Antigravity IDE\Antigravity IDE.exe
+```
+
+The resulting error indicated that the expected application executable could not be found.
+
+### 2.7 Observed impact
+
+- The Windows update process failed.
+- The updater could not locate the expected executable.
+- The application installation path recorded in Windows Registry did not match the actual installation directory.
+- Users with custom installation locations may encounter similar update failures if the same behavior affects their installations.
+
+---
+
+## 3. Issue 2: Language Server TLS Certificate Expiration Error
+
+### 3.1 Reproduction
+
+To isolate the updater issue from application startup, I launched Antigravity directly from its actual D-drive installation:
 
 ```powershell
 Start-Process "D:\Antigravity IDE\Antigravity IDE.exe"
 ```
 
-The application starts its browser onboarding service, but subsequent Language Server communication fails.
+The application process started and initialized its browser onboarding service.
 
-### Observed logs
+However, subsequent Language Server communication produced repeated TLS certificate validation errors.
+
+### 3.2 Observed application logs
+
+The relevant log output included:
 
 ```text
 [main] update#setState idle
@@ -108,85 +191,123 @@ Error: certificate has expired
 code: CERT_HAS_EXPIRED
 ```
 
-The stack trace points to the application's internal Node.js TLS connection handling.
+The associated Node.js stack trace included TLS connection handling, specifically `TLSSocket.onConnectSecure`.
 
-### Expected behavior
+### 3.3 Expected behavior
 
-The Language Server should establish secure communication using a valid, trusted TLS certificate.
+The Language Server should establish secure communication using a valid certificate chain and successfully maintain its required connections and heartbeat operations.
 
-### Actual behavior
+### 3.4 Actual behavior
 
-TLS certificate validation fails with `CERT_HAS_EXPIRED`, resulting in repeated connection and heartbeat errors.
+The application reported:
 
-### Impact
+```text
+CERT_HAS_EXPIRED
+```
 
-Language Server communication is disrupted. The extent of functionality affected requires further verification.
+This resulted in repeated connection and heartbeat errors during Language Server communication.
 
-## Investigation performed
+### 3.5 Observed impact
 
-The following checks were performed:
+- Language Server communication encountered repeated TLS validation failures.
+- Heartbeat operations reported errors.
+- The extent of the impact on code intelligence and other IDE functionality requires further verification.
 
-1. Verified that the D-drive executable exists.
-2. Inspected the Windows uninstall registry.
-3. Confirmed that the registry points to the C-drive installation.
-4. Verified that the C-drive executable is missing.
-5. Examined the Windows updater log.
-6. Launched Antigravity directly from D drive.
-7. Captured the Language Server TLS certificate validation errors.
+**Note:** The observed `CERT_HAS_EXPIRED` error establishes a certificate validation failure. The exact certificate involved and its validity dates require further verification before attributing the issue to a specific bundled certificate.
 
-## Additional Observation: VS Code-Based Updater Components
+---
 
-During the update attempt, the Windows updater displayed the following error:
+## 4. Additional Observation: VS Code-Related Updater Components
+
+During the update attempt, the application displayed the following message:
 
 ```text
 Failed to install Visual Studio Code update.
 ```
 
-The updater generated a temporary log file named:
+The temporary updater log was named:
 
 ```text
 vscode-inno-updater-1794133548.log
 ```
 
-Location:
+Its location was:
 
 ```text
 %LOCALAPPDATA%\Temp\
 ```
 
-The log showed that the updater attempted to launch the Antigravity executable from the registered C-drive installation path, which did not exist.
+The log contained the incorrect C-drive executable path described in Issue 1.
 
 ### Why this observation matters
 
-The error message and temporary log filename contain Visual Studio Code-related terminology, while the application being updated is Google Antigravity IDE.
+The error message and temporary log filename contain Visual Studio Code-related terminology, even though the application being updated is Google Antigravity IDE.
 
-This suggests that Antigravity uses or shares VS Code-derived updater components or infrastructure.
+This suggests that Antigravity may use or share VS Code-derived updater components or infrastructure.
 
-It is an implementation observation, not proof that the updater is identical to the VS Code updater.
+However, these observations alone do not establish that Antigravity uses an identical updater implementation or that the two products share the same update mechanism.
 
-The underlying failure remains the incorrect executable path resolution during the update process.
+The confirmed issue remains the updater's attempt to resolve an executable path that did not correspond to the actual installation directory.
 
+---
 
-## Communication with the vendor
+## 5. Investigation Performed
 
-I contacted the Google Antigravity team through X to report the findings and ask whether an official bug bounty or responsible disclosure program was available.
+The following checks were performed during the investigation:
 
-I also communicated that I would wait an additional day for a response before publishing my findings.
+1. Inspected the Antigravity installation directory on D:.
+2. Verified that `Antigravity IDE.exe` existed in the D-drive installation directory.
+3. Checked whether the corresponding executable existed in the C-drive Programs directory.
+4. Inspected the Windows uninstall Registry entries for Antigravity.
+5. Identified the mismatch between the actual installation directory and the registry-reported installation location.
+6. Examined the Windows updater log and identified the incorrect executable path.
+7. Launched Antigravity directly from the D-drive installation.
+8. Examined the application logs and captured the Language Server TLS certificate validation errors.
+9. Identified the VS Code-related updater error message and temporary log filename.
 
-As of November 10, 2026, I have not received a response.
+---
 
-I am publishing this report to document the reproducible behavior, share the technical investigation, and help other developers experiencing similar problems.
+## 6. Communication with the Vendor
 
-## Questions for the Antigravity team
+I contacted the Google Antigravity team through X to report my findings and ask whether an official bug bounty or responsible disclosure program was available.
 
-1. Is custom installation path handling on Windows a known updater issue?
-2. Why is the updater resolving an installation path different from the actual application location?
-3. Is the Language Server TLS certificate expiration a known issue?
-4. Is there an official bug reporting, responsible disclosure, or bug bounty program?
+I also communicated that I would wait an additional day for a response before publishing the technical findings.
 
-**Note:** These findings describe software reliability and TLS validation errors. I am not claiming an exploitable security vulnerability or a confirmed security impact.
+As of November 10, 2026, I had not received a response.
 
-I welcome technical feedback, investigation, and acknowledgement from the engineering team.
+I am publishing this report to document the observed behavior, provide reproducible technical evidence, and help other developers who may encounter similar issues.
+
+---
+
+## 7. Questions for the Antigravity Engineering Team
+
+1. Is the Windows updater installation path mismatch a known issue?
+2. Why does the updater resolve a C-drive installation path when the application was installed on D:?
+3. Why do the Windows uninstall registration entries reference a directory that was never used for this installation?
+4. Is the Language Server `CERT_HAS_EXPIRED` error a known issue?
+5. Which certificate is involved in the Language Server TLS validation failure, and are there known certificate lifecycle or renewal issues?
+6. Is there an official bug reporting, responsible disclosure, or bug bounty program for Google Antigravity?
+
+---
+
+## 8. Scope and Disclosure Note
+
+This report documents two observed software issues:
+
+- A Windows updater installation path mismatch.
+- Language Server TLS certificate validation errors.
+
+These findings currently demonstrate application update and communication reliability problems.
+
+I am **not claiming a confirmed exploitable security vulnerability, unauthorized access, data exposure, or system compromise**. The security implications, if any, require further investigation by the Antigravity engineering team.
+
+All observations are based on local testing and the logs available during the investigation.
+
+I welcome technical feedback, investigation, and acknowledgement from the Antigravity engineering team.
+
+---
 
 **Reporter:** Shubham Setia  
-Senior Software Engineer | Frontend Technical Lead
+**Role:** Senior Software Engineer | Frontend Technical Lead  
+**Platform:** Windows  
+**Report Date:** November 10, 2026
